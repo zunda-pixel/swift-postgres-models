@@ -2,6 +2,8 @@ public struct SQLParser {
     static let typeAliases: [String: String] = [
         // Arrays
         "TEXT[]": "[String]",    "TEXT[]?": "[String]?",
+        // Binary
+        "BYTEA": "Data",         "BYTEA?": "Data?",
         // Network types
         "INET": "String",        "INET?": "String?",
         "MACADDR": "String",     "MACADDR?": "String?",
@@ -39,8 +41,8 @@ public struct SQLParser {
     ]
 
     static let supportedTypes: Set<String> = [
-        "UUID", "String", "Int", "Int64", "Double", "Decimal", "Bool", "Date",
-        "UUID?", "String?", "Int?", "Int64?", "Double?", "Decimal?", "Bool?", "Date?",
+        "UUID", "String", "Int", "Int64", "Double", "Decimal", "Bool", "Date", "Data",
+        "UUID?", "String?", "Int?", "Int64?", "Double?", "Decimal?", "Bool?", "Date?", "Data?",
         "[String]", "[String]?",
     ]
 
