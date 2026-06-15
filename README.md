@@ -164,6 +164,44 @@ The generator binds parameters via `.rawValue` and decodes results by reading th
 
 A non-optional column whose stored value matches no enum case throws `PostgresModelsError.invalidRawValue`; an optional enum return (`Visibility?`) instead decodes to `nil`. Any type name starting with an uppercase letter that isn't a built-in supported type is treated as a custom `RawRepresentable` type — a typo will surface as a Swift compile error in the generated code.
 
+## Dynamic queries
+
+This library generates one function per static `.sql` query — there is no fluent query DSL. That's deliberate (No ORM, No DSL). When a query's shape changes at runtime (optional filters, cursor pagination, dynamic `ORDER BY`), use one of these patterns, in order of preference:
+
+### 1. Optional parameters with in-SQL branching (preferred)
+
+Fold the condition into the SQL using a nullable parameter. A `nil` argument disables the filter; a non-`nil` argument applies it. The same placeholder may be referenced more than once:
+
+```sql
+-- @query ListEvents :many
+-- @param organizer_id: UUID?
+-- @param after: Date?
+-- @returns id: UUID, title: String, starts_at: Date
+SELECT id, title, starts_at
+FROM events
+WHERE ($1::uuid IS NULL OR organizer_id = $1)
+  AND ($2::timestamptz IS NULL OR starts_at > $2)
+ORDER BY starts_at
+LIMIT 50;
+```
+
+```swift
+// Both filters off
+let all = try await EventsQueries.listEvents(client, organizerId: nil, after: nil, logger: logger)
+// Filter by organizer only
+let mine = try await EventsQueries.listEvents(client, organizerId: me, after: nil, logger: logger)
+```
+
+This covers most optional-filter and cursor-pagination needs while keeping a single, type-safe function.
+
+### 2. Multiple static variants
+
+When the variants are few and well-known, write a separate query per shape (e.g. `ListEventsByOrganizer`, `ListEventsRecent`). Beware combinatorial explosion — this doesn't scale past a couple of independent toggles.
+
+### 3. Escape hatch — PostgresNIO directly
+
+For genuinely dynamic SQL that can't be expressed statically (dynamic `ORDER BY` columns, variable-length `IN` lists that aren't a single array parameter, query fragments assembled at runtime), drop down to PostgresNIO and build the `PostgresQuery` yourself. The generated functions accept `some PostgresQueryRunner`, so hand-written and generated calls can share the same `PostgresClient` or transaction `connection`. Always bind values via `PostgresQuery` string interpolation (`\(value)`) — never raw-concatenate user input into the SQL string.
+
 ## Migrations
 
 Create files with the `.migration.sql` extension. No annotations needed — just plain SQL:
