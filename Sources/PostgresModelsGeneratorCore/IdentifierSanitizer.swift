@@ -25,6 +25,12 @@ public struct IdentifierSanitizer {
         return name.prefix(1).lowercased() + name.dropFirst()
     }
 
+    /// `"GetUser"` → `"GetUserRow"`, `"listUsers"` → `"ListUsersRow"`
+    public static func rowName(from name: String) -> String {
+        guard !name.isEmpty else { return name + "Row" }
+        return name.prefix(1).uppercased() + name.dropFirst() + "Row"
+    }
+
     /// `"first_name"` → `"firstName"`, reserved words get backtick-escaped
     public static func columnName(from name: String) -> String {
         let words = name.components(separatedBy: "_")

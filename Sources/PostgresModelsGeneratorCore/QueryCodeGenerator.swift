@@ -24,7 +24,14 @@ public struct QueryCodeGenerator {
     private static func generateQuery(_ query: ParsedQuery) -> [String] {
         var lines: [String] = []
         let funcName = IdentifierSanitizer.functionName(from: query.name)
+        let rowType = IdentifierSanitizer.rowName(from: query.name)
         let sql = normalizedSQL(query.sql, params: query.params)
+
+        // Multi-column results are returned as a named, Sendable Row struct.
+        if query.returns.count > 1 {
+            lines.append(contentsOf: rowStructLines(query, rowType: rowType))
+            lines.append("")
+        }
 
         // Build parameter list lines
         var paramLines: [String] = ["        _ db: some PostgresQueryRunner,"]
@@ -33,27 +40,38 @@ public struct QueryCodeGenerator {
         }
         paramLines.append("        logger: Logger")
 
+        let result = resultType(query, rowType: rowType)
         let returnClause: String
         switch query.kind {
-        case .one:   returnClause = " -> \(oneTupleType(query.returns))?"
-        case .many:  returnClause = " -> [\(oneTupleType(query.returns))]"
+        case .one:   returnClause = " -> \(result)?"
+        case .many:  returnClause = " -> [\(result)]"
         case .exec:  returnClause = ""
         }
 
         lines.append("    static func \(funcName)(")
         lines.append(contentsOf: paramLines)
         lines.append("    ) async throws\(returnClause) {")
-        lines.append(contentsOf: generateBody(query, sql: sql))
+        lines.append(contentsOf: generateBody(query, sql: sql, rowType: rowType))
         lines.append("    }")
         return lines
     }
 
-    private static func generateBody(_ query: ParsedQuery, sql: String) -> [String] {
+    /// Definition lines for the named Row struct of a multi-column query.
+    private static func rowStructLines(_ query: ParsedQuery, rowType: String) -> [String] {
+        var lines = ["    struct \(rowType): Sendable {"]
+        for r in query.returns {
+            lines.append("        let \(IdentifierSanitizer.columnName(from: r.name)): \(r.type)")
+        }
+        lines.append("    }")
+        return lines
+    }
+
+    private static func generateBody(_ query: ParsedQuery, sql: String, rowType: String) -> [String] {
         switch query.kind {
         case .one:
-            return generateOneBody(query, sql: sql)
+            return generateOneBody(query, sql: sql, rowType: rowType)
         case .many:
-            return generateManyBody(query, sql: sql)
+            return generateManyBody(query, sql: sql, rowType: rowType)
         case .exec:
             return [
                 "        try await db.query(",
@@ -64,10 +82,10 @@ public struct QueryCodeGenerator {
         }
     }
 
-    private static func generateOneBody(_ query: ParsedQuery, sql: String) -> [String] {
+    private static func generateOneBody(_ query: ParsedQuery, sql: String, rowType: String) -> [String] {
         let decodeType = decodeTypeExpr(query.returns)
         let destructure = destructureExpr(query.returns)
-        let construct = constructExpr(query.returns)
+        let construct = constructExpr(query.returns, rowType: rowType)
         var lines = [
             "        let rows = try await db.query(",
             "            \"\(sql)\",",
@@ -82,13 +100,13 @@ public struct QueryCodeGenerator {
         return lines
     }
 
-    private static func generateManyBody(_ query: ParsedQuery, sql: String) -> [String] {
-        let tupleType = oneTupleType(query.returns)
+    private static func generateManyBody(_ query: ParsedQuery, sql: String, rowType: String) -> [String] {
+        let result = resultType(query, rowType: rowType)
         let decodeType = decodeTypeExpr(query.returns)
         let destructure = destructureExpr(query.returns)
-        let construct = constructExpr(query.returns)
+        let construct = constructExpr(query.returns, rowType: rowType)
         var lines = [
-            "        var results: [\(tupleType)] = []",
+            "        var results: [\(result)] = []",
             "        for try await \(destructure) in try await db.query(",
             "            \"\(sql)\",",
             "            logger: logger",
@@ -103,12 +121,10 @@ public struct QueryCodeGenerator {
 
     // MARK: - Type expression helpers
 
-    /// Return type for :one — `(id: UUID, name: String)` or bare type for single column.
-    /// Custom types are exposed as their RawRepresentable type (e.g. `EventVisibility`).
-    private static func oneTupleType(_ returns: [ParsedReturn]) -> String {
-        if returns.count == 1 { return returns[0].type }
-        let inner = returns.map { "\(IdentifierSanitizer.columnName(from: $0.name)): \($0.type)" }.joined(separator: ", ")
-        return "(\(inner))"
+    /// Exposed result type for one row: the bare column type for a single
+    /// column, or the named Row struct for multiple columns.
+    private static func resultType(_ query: ParsedQuery, rowType: String) -> String {
+        query.returns.count == 1 ? query.returns[0].type : rowType
     }
 
     /// Element type to decode for one return: its built-in type, or the raw
@@ -160,14 +176,15 @@ public struct QueryCodeGenerator {
         return lines
     }
 
-    /// Labeled tuple construction — `(id: id, name: name)` or bare identifier for single column
-    private static func constructExpr(_ returns: [ParsedReturn]) -> String {
+    /// Result construction — `GetUserRow(id: id, name: name)` for multiple
+    /// columns, or the bare identifier for a single column.
+    private static func constructExpr(_ returns: [ParsedReturn], rowType: String) -> String {
         if returns.count == 1 { return IdentifierSanitizer.columnName(from: returns[0].name) }
         let parts = returns.map { r -> String in
             let n = IdentifierSanitizer.columnName(from: r.name)
             return "\(n): \(n)"
         }
-        return "(\(parts.joined(separator: ", ")))"
+        return "\(rowType)(\(parts.joined(separator: ", ")))"
     }
 
     // MARK: - SQL normalization
