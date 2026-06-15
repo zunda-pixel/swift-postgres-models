@@ -116,6 +116,34 @@ try await VarietiesQueries.insertVarieties(client, ids: ids, names: names, logge
 
 **SQL injection safety:** PostgresNIO's `PostgresQuery` string interpolation is used for all parameters — `\(value)` binds the value as a prepared statement parameter, never raw-interpolated into the query string.
 
+### Enum / RawRepresentable types
+
+For columns stored as `text` or `int` that map to a Swift enum, declare the enum type directly in `@param`/`@returns`. The type must be a `RawRepresentable` defined in your module (`String`- or `Int`-backed):
+
+```swift
+enum Visibility: String { case `public`, unlisted, `private` }
+```
+
+```sql
+-- @query SetVisibility :exec
+-- @param id: UUID
+-- @param visibility: Visibility
+UPDATE events SET visibility = $2 WHERE id = $1;
+
+-- @query GetVisibility :one
+-- @param id: UUID
+-- @returns visibility: Visibility
+SELECT visibility FROM events WHERE id = $1;
+```
+
+The generator binds parameters via `.rawValue` and decodes results by reading the raw column value and calling `init(rawValue:)`. The backing type defaults to `String`; for an `Int`-backed enum, append `= Int`:
+
+```sql
+-- @returns level: PriorityLevel = Int
+```
+
+A non-optional column whose stored value matches no enum case throws `PostgresModelsError.invalidRawValue`; an optional enum return (`Visibility?`) instead decodes to `nil`. Any type name starting with an uppercase letter that isn't a built-in supported type is treated as a custom `RawRepresentable` type — a typo will surface as a Swift compile error in the generated code.
+
 ## Migrations
 
 Create files with the `.migration.sql` extension. No annotations needed — just plain SQL:

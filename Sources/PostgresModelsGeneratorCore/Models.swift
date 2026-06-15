@@ -5,20 +5,32 @@ public enum QueryKind: String, Equatable, Sendable {
 public struct ParsedParam: Equatable, Sendable {
     public let name: String
     public let type: String
+    /// True when `type` is a user-defined `RawRepresentable` type rather than a
+    /// built-in supported type. Custom params bind via `.rawValue`.
+    public let isCustom: Bool
 
-    public init(name: String, type: String) {
+    public init(name: String, type: String, isCustom: Bool = false) {
         self.name = name
         self.type = type
+        self.isCustom = isCustom
     }
 }
 
 public struct ParsedReturn: Equatable, Sendable {
     public let name: String
     public let type: String
+    /// True when `type` is a user-defined `RawRepresentable` type. Custom
+    /// returns decode the `backing` raw type then `init(rawValue:)`.
+    public let isCustom: Bool
+    /// The raw backing type to decode for a custom return (`String` by
+    /// default, or `Int`/`Int64`). `nil` for built-in types.
+    public let backing: String?
 
-    public init(name: String, type: String) {
+    public init(name: String, type: String, isCustom: Bool = false, backing: String? = nil) {
         self.name = name
         self.type = type
+        self.isCustom = isCustom
+        self.backing = backing
     }
 }
 

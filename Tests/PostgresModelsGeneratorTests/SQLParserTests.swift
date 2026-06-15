@@ -132,11 +132,11 @@ struct SQLParserTests {
     @Test func throwsOnUnsupportedParamType() {
         let input = """
             -- @query GetUser :one
-            -- @param id: URL
+            -- @param id: notatype
             -- @returns id: UUID
             SELECT id FROM users WHERE id = $1;
             """
-        #expect(throws: SQLParserError.unsupportedType("URL", queryName: "GetUser")) {
+        #expect(throws: SQLParserError.unsupportedType("notatype", queryName: "GetUser")) {
             try SQLParser.parseQueryFile(input)
         }
     }
@@ -145,10 +145,10 @@ struct SQLParserTests {
         let input = """
             -- @query GetUser :one
             -- @param id: UUID
-            -- @returns id: URL
+            -- @returns id: notatype
             SELECT id FROM users WHERE id = $1;
             """
-        #expect(throws: SQLParserError.unsupportedType("URL", queryName: "GetUser")) {
+        #expect(throws: SQLParserError.unsupportedType("notatype", queryName: "GetUser")) {
             try SQLParser.parseQueryFile(input)
         }
     }
@@ -273,6 +273,81 @@ struct SQLParserTests {
         let result = try SQLParser.parseQueryFile(input)
         let types = result.queries[0].params.map { $0.type }
         #expect(types == ["[UUID]", "[Int]", "[Int64]", "[Double]", "[Bool]", "[Date]", "[String]"])
+    }
+
+    // MARK: Custom (RawRepresentable) types
+
+    @Test func parsesCustomEnumParam() throws {
+        let input = """
+            -- @query SetVisibility :exec
+            -- @param id: UUID
+            -- @param visibility: EventVisibility
+            UPDATE events SET visibility = $2 WHERE id = $1;
+            """
+        let result = try SQLParser.parseQueryFile(input)
+        let p = result.queries[0].params[1]
+        #expect(p == ParsedParam(name: "visibility", type: "EventVisibility", isCustom: true))
+    }
+
+    @Test func parsesCustomEnumReturnDefaultsToStringBacking() throws {
+        let input = """
+            -- @query GetVisibility :one
+            -- @param id: UUID
+            -- @returns visibility: EventVisibility
+            SELECT visibility FROM events WHERE id = $1;
+            """
+        let result = try SQLParser.parseQueryFile(input)
+        let r = result.queries[0].returns[0]
+        #expect(r == ParsedReturn(name: "visibility", type: "EventVisibility", isCustom: true, backing: "String"))
+    }
+
+    @Test func parsesCustomEnumReturnWithIntBacking() throws {
+        let input = """
+            -- @query GetPriority :one
+            -- @param id: UUID
+            -- @returns level: PriorityLevel = Int
+            SELECT level FROM events WHERE id = $1;
+            """
+        let result = try SQLParser.parseQueryFile(input)
+        let r = result.queries[0].returns[0]
+        #expect(r == ParsedReturn(name: "level", type: "PriorityLevel", isCustom: true, backing: "Int"))
+    }
+
+    @Test func parsesOptionalCustomEnumReturn() throws {
+        let input = """
+            -- @query GetStatus :one
+            -- @param id: UUID
+            -- @returns status: Status?
+            SELECT status FROM participants WHERE id = $1;
+            """
+        let result = try SQLParser.parseQueryFile(input)
+        let r = result.queries[0].returns[0]
+        #expect(r == ParsedReturn(name: "status", type: "Status?", isCustom: true, backing: "String"))
+    }
+
+    @Test func throwsOnUnsupportedBackingType() {
+        let input = """
+            -- @query GetX :one
+            -- @param id: UUID
+            -- @returns x: MyEnum = Float
+            SELECT x FROM t WHERE id = $1;
+            """
+        #expect(throws: SQLParserError.unsupportedType("MyEnum = Float", queryName: "GetX")) {
+            try SQLParser.parseQueryFile(input)
+        }
+    }
+
+    @Test func lowercaseUnknownTypeStaysUnsupported() {
+        // A lowercase unknown type is not a valid custom type, so it still errors.
+        let input = """
+            -- @query GetX :one
+            -- @param id: UUID
+            -- @returns x: mytype
+            SELECT x FROM t WHERE id = $1;
+            """
+        #expect(throws: SQLParserError.unsupportedType("mytype", queryName: "GetX")) {
+            try SQLParser.parseQueryFile(input)
+        }
     }
 
     @Test func parsesByteaTypeAsData() throws {

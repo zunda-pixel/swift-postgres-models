@@ -99,8 +99,8 @@ public struct SQLParser {
                 if l.hasPrefix("-- @query ") { break }
                 if l.hasPrefix("-- @param ") {
                     let s = String(l.dropFirst("-- @param ".count))
-                    let (name, type) = try parseNameType(s, queryName: queryName)
-                    params.append(ParsedParam(name: name, type: type))
+                    let parsed = try parseNameType(s, queryName: queryName)
+                    params.append(ParsedParam(name: parsed.name, type: parsed.type, isCustom: parsed.isCustom))
                     i += 1
                 } else if l.hasPrefix("-- @returns ") {
                     guard returnsLine == nil else {
@@ -133,12 +133,12 @@ public struct SQLParser {
 
             let returns: [ParsedReturn] = try returnsLine.map { try parseReturnsList($0, queryName: queryName) } ?? []
 
-            for p in params {
+            for p in params where !p.isCustom {
                 guard supportedTypes.contains(p.type) else {
                     throw SQLParserError.unsupportedType(p.type, queryName: queryName)
                 }
             }
-            for r in returns {
+            for r in returns where !r.isCustom {
                 guard supportedTypes.contains(r.type) else {
                     throw SQLParserError.unsupportedType(r.type, queryName: queryName)
                 }
@@ -167,26 +167,70 @@ public struct SQLParser {
 
     // MARK: - Private helpers
 
-    private static func parseNameType(_ s: String, queryName: String) throws -> (String, String) {
+    /// Raw backing types permitted for custom `RawRepresentable` types.
+    static let allowedBackings: Set<String> = ["String", "Int", "Int64"]
+
+    struct ParsedTypeAnnotation {
+        let name: String
+        let type: String
+        let isCustom: Bool
+        let backing: String?
+    }
+
+    private static func parseNameType(_ s: String, queryName: String) throws -> ParsedTypeAnnotation {
         let colonIdx = s.firstIndex(of: ":")
         guard let idx = colonIdx else {
             throw SQLParserError.malformedAnnotation(s)
         }
         let name = s[s.startIndex..<idx].trimmingCharacters(in: .whitespaces)
-        let rawType = s[s.index(after: idx)...].trimmingCharacters(in: .whitespaces)
+        var rawType = s[s.index(after: idx)...].trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty, !rawType.isEmpty else {
             throw SQLParserError.malformedAnnotation(s)
         }
+
+        // An optional `= Backing` suffix declares the raw backing type for a
+        // custom RawRepresentable type, e.g. `MyEnum = Int`.
+        var explicitBacking: String? = nil
+        if let eq = rawType.firstIndex(of: "=") {
+            explicitBacking = rawType[rawType.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+            rawType = rawType[rawType.startIndex..<eq].trimmingCharacters(in: .whitespaces)
+            guard !rawType.isEmpty else { throw SQLParserError.malformedAnnotation(s) }
+        }
+
         let normalizedType = normalizeSQLTypeName(rawType)
-        let type = typeAliases[normalizedType] ?? normalizedType
-        return (name, type)
+        if let aliased = typeAliases[normalizedType] {
+            return ParsedTypeAnnotation(name: name, type: aliased, isCustom: false, backing: nil)
+        }
+        if supportedTypes.contains(normalizedType) {
+            return ParsedTypeAnnotation(name: name, type: normalizedType, isCustom: false, backing: nil)
+        }
+        // Treat an uppercase identifier (optionally `?`-suffixed) as a custom
+        // RawRepresentable type defined in the consuming module.
+        if isCustomTypeName(normalizedType) {
+            let backing = explicitBacking ?? "String"
+            guard allowedBackings.contains(backing) else {
+                throw SQLParserError.unsupportedType(normalizedType + " = " + backing, queryName: queryName)
+            }
+            return ParsedTypeAnnotation(name: name, type: normalizedType, isCustom: true, backing: backing)
+        }
+        // Unknown and not a valid custom type — let the caller raise unsupportedType.
+        return ParsedTypeAnnotation(name: name, type: normalizedType, isCustom: false, backing: nil)
     }
 
     private static func parseReturnsList(_ s: String, queryName: String) throws -> [ParsedReturn] {
         try splitTopLevelCommas(s).map { item in
-            let (name, type) = try parseNameType(item.trimmingCharacters(in: .whitespaces), queryName: queryName)
-            return ParsedReturn(name: name, type: type)
+            let parsed = try parseNameType(item.trimmingCharacters(in: .whitespaces), queryName: queryName)
+            return ParsedReturn(name: parsed.name, type: parsed.type, isCustom: parsed.isCustom, backing: parsed.backing)
         }
+    }
+
+    /// True for an uppercase-initial Swift identifier, optionally `?`-suffixed
+    /// (e.g. `EventVisibility`, `Status?`). Used to recognise user-defined types.
+    static func isCustomTypeName(_ raw: String) -> Bool {
+        var s = Substring(raw)
+        if s.hasSuffix("?") { s = s.dropLast() }
+        guard let first = s.first, first.isUppercase, first.isLetter else { return false }
+        return s.dropFirst().allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" }
     }
 
     /// Splits `s` on commas that are not inside parentheses, e.g. `NUMERIC(10,2)` stays intact.

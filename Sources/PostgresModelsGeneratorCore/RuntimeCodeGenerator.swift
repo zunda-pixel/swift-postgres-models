@@ -39,6 +39,12 @@ public struct RuntimeCodeGenerator {
             "        return try await self.query(query, logger: optionalLogger, file: file, line: line)",
             "    }",
             "}",
+            "",
+            "/// Errors raised by generated query helpers.",
+            "enum PostgresModelsError: Error {",
+            "    /// A column's raw value did not map to any case of its RawRepresentable type.",
+            "    case invalidRawValue(column: String, rawValue: String)",
+            "}",
         ]
         return lines.joined(separator: "\n")
     }

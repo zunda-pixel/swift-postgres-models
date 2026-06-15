@@ -133,6 +133,106 @@ struct QueryCodeGeneratorTests {
         #expect(output.contains(#"WHERE id = \(userId)"#))
     }
 
+    // MARK: Custom (RawRepresentable) types
+
+    @Test func customEnumParamBindsRawValue() {
+        let file = ParsedQueryFile(queries: [
+            ParsedQuery(
+                name: "SetVisibility", kind: .exec,
+                params: [
+                    ParsedParam(name: "id", type: "UUID"),
+                    ParsedParam(name: "visibility", type: "EventVisibility", isCustom: true),
+                ],
+                returns: [],
+                sql: "UPDATE events SET visibility = $2 WHERE id = $1"
+            ),
+        ])
+        let output = QueryCodeGenerator.generate(from: file, structName: "EventsQueries")
+        #expect(output.contains("visibility: EventVisibility,"))
+        #expect(output.contains(#"SET visibility = \(visibility.rawValue) WHERE id = \(id)"#))
+    }
+
+    @Test func optionalCustomEnumParamBindsOptionalRawValue() {
+        let file = ParsedQueryFile(queries: [
+            ParsedQuery(
+                name: "SetStatus", kind: .exec,
+                params: [
+                    ParsedParam(name: "id", type: "UUID"),
+                    ParsedParam(name: "status", type: "Status?", isCustom: true),
+                ],
+                returns: [],
+                sql: "UPDATE p SET status = $2 WHERE id = $1"
+            ),
+        ])
+        let output = QueryCodeGenerator.generate(from: file, structName: "PQueries")
+        #expect(output.contains(#"SET status = \(status?.rawValue) WHERE id = \(id)"#))
+    }
+
+    @Test func customEnumReturnDecodesBackingAndConverts() {
+        let file = ParsedQueryFile(queries: [
+            ParsedQuery(
+                name: "GetVisibility", kind: .one,
+                params: [ParsedParam(name: "id", type: "UUID")],
+                returns: [ParsedReturn(name: "visibility", type: "EventVisibility", isCustom: true, backing: "String")],
+                sql: "SELECT visibility FROM events WHERE id = $1"
+            ),
+        ])
+        let output = QueryCodeGenerator.generate(from: file, structName: "EventsQueries")
+        #expect(output.contains("async throws -> EventVisibility?"))
+        #expect(output.contains("rows.decode(String.self)"))
+        #expect(output.contains("for try await visibilityRaw in"))
+        #expect(output.contains("guard let visibility = EventVisibility(rawValue: visibilityRaw) else {"))
+        #expect(output.contains(#"throw PostgresModelsError.invalidRawValue(column: "visibility", rawValue: "\(visibilityRaw)")"#))
+        #expect(output.contains("return visibility"))
+    }
+
+    @Test func optionalCustomEnumReturnUsesFlatMap() {
+        let file = ParsedQueryFile(queries: [
+            ParsedQuery(
+                name: "GetStatus", kind: .one,
+                params: [ParsedParam(name: "id", type: "UUID")],
+                returns: [ParsedReturn(name: "status", type: "Status?", isCustom: true, backing: "String")],
+                sql: "SELECT status FROM p WHERE id = $1"
+            ),
+        ])
+        let output = QueryCodeGenerator.generate(from: file, structName: "PQueries")
+        #expect(output.contains("rows.decode(String?.self)"))
+        #expect(output.contains("let status = statusRaw.flatMap { Status(rawValue: $0) }"))
+    }
+
+    @Test func intBackedCustomEnumReturnDecodesInt() {
+        let file = ParsedQueryFile(queries: [
+            ParsedQuery(
+                name: "GetPriority", kind: .one,
+                params: [ParsedParam(name: "id", type: "UUID")],
+                returns: [ParsedReturn(name: "level", type: "PriorityLevel", isCustom: true, backing: "Int")],
+                sql: "SELECT level FROM events WHERE id = $1"
+            ),
+        ])
+        let output = QueryCodeGenerator.generate(from: file, structName: "EventsQueries")
+        #expect(output.contains("rows.decode(Int.self)"))
+        #expect(output.contains("guard let level = PriorityLevel(rawValue: levelRaw) else {"))
+    }
+
+    @Test func mixedCustomAndBuiltinReturnsDecodeTuple() {
+        let file = ParsedQueryFile(queries: [
+            ParsedQuery(
+                name: "GetEvent", kind: .many,
+                params: [],
+                returns: [
+                    ParsedReturn(name: "id", type: "UUID"),
+                    ParsedReturn(name: "visibility", type: "EventVisibility", isCustom: true, backing: "String"),
+                ],
+                sql: "SELECT id, visibility FROM events"
+            ),
+        ])
+        let output = QueryCodeGenerator.generate(from: file, structName: "EventsQueries")
+        #expect(output.contains("async throws -> [(id: UUID, visibility: EventVisibility)]"))
+        #expect(output.contains("rows.decode((UUID, String).self)") || output.contains(".decode((UUID, String).self)"))
+        #expect(output.contains("for try await (id, visibilityRaw) in"))
+        #expect(output.contains("results.append((id: id, visibility: visibility))"))
+    }
+
     // MARK: Headers and structure
 
     @Test func outputContainsRequiredImports() {
