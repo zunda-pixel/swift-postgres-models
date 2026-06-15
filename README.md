@@ -91,7 +91,7 @@ Because every call inside the closure shares the same `connection`, they run in 
 - `:many` — `async throws -> [T]` — collects all rows into an array
 - `:exec` — `async throws -> Void` — no return value
 
-**Supported types:** `UUID`, `String`, `Int`, `Double`, `Bool`, `Date`, and optionals of each (`UUID?`, `String?`, etc.)
+**Supported types:** `UUID`, `String`, `Int`, `Int64`, `Double`, `Decimal`, `Bool`, `Date`, `Data` (`bytea`), and optionals of each (`UUID?`, `String?`, etc.)
 
 **File → struct naming:** the file stem is split on `_` and `-`, each word capitalised, then joined with a `Queries` suffix. `todo_items.query.sql` → `TodoItemsQueries`.
 

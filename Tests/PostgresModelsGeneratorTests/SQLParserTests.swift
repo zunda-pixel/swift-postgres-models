@@ -145,10 +145,10 @@ struct SQLParserTests {
         let input = """
             -- @query GetUser :one
             -- @param id: UUID
-            -- @returns id: Data
+            -- @returns id: URL
             SELECT id FROM users WHERE id = $1;
             """
-        #expect(throws: SQLParserError.unsupportedType("Data", queryName: "GetUser")) {
+        #expect(throws: SQLParserError.unsupportedType("URL", queryName: "GetUser")) {
             try SQLParser.parseQueryFile(input)
         }
     }
@@ -221,6 +221,39 @@ struct SQLParserTests {
             """
         let result = try SQLParser.parseQueryFile(input)
         #expect(result.queries[0].returns[0].type == "[String]")
+    }
+
+    @Test func parsesByteaTypeAsData() throws {
+        let input = """
+            -- @query GetKey :one
+            -- @param id: UUID
+            -- @returns public_key: BYTEA
+            SELECT public_key FROM passkey_credentials WHERE id = $1;
+            """
+        let result = try SQLParser.parseQueryFile(input)
+        #expect(result.queries[0].returns[0].type == "Data")
+    }
+
+    @Test func parsesOptionalByteaTypeAsOptionalData() throws {
+        let input = """
+            -- @query GetKey :one
+            -- @param id: UUID
+            -- @returns public_key: BYTEA?
+            SELECT public_key FROM passkey_credentials WHERE id = $1;
+            """
+        let result = try SQLParser.parseQueryFile(input)
+        #expect(result.queries[0].returns[0].type == "Data?")
+    }
+
+    @Test func parsesDataParamType() throws {
+        let input = """
+            -- @query SaveKey :exec
+            -- @param id: UUID
+            -- @param public_key: Data
+            INSERT INTO passkey_credentials (id, public_key) VALUES ($1, $2);
+            """
+        let result = try SQLParser.parseQueryFile(input)
+        #expect(result.queries[0].params[1] == ParsedParam(name: "public_key", type: "Data"))
     }
 
     @Test func parsesInetTypeAsString() throws {
