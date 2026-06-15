@@ -27,7 +27,7 @@ public struct QueryCodeGenerator {
         let sql = normalizedSQL(query.sql, params: query.params)
 
         // Build parameter list lines
-        var paramLines: [String] = ["        _ client: PostgresClient,"]
+        var paramLines: [String] = ["        _ db: some PostgresQueryRunner,"]
         for p in query.params {
             paramLines.append("        \(IdentifierSanitizer.columnName(from: p.name)): \(p.type),")
         }
@@ -56,7 +56,7 @@ public struct QueryCodeGenerator {
             return generateManyBody(query, sql: sql)
         case .exec:
             return [
-                "        try await client.query(",
+                "        try await db.query(",
                 "            \"\(sql)\",",
                 "            logger: logger",
                 "        )",
@@ -69,7 +69,7 @@ public struct QueryCodeGenerator {
         let destructure = destructureExpr(query.returns)
         let construct = constructExpr(query.returns)
         return [
-            "        let rows = try await client.query(",
+            "        let rows = try await db.query(",
             "            \"\(sql)\",",
             "            logger: logger",
             "        )",
@@ -87,7 +87,7 @@ public struct QueryCodeGenerator {
         let construct = constructExpr(query.returns)
         return [
             "        var results: [\(tupleType)] = []",
-            "        for try await \(destructure) in try await client.query(",
+            "        for try await \(destructure) in try await db.query(",
             "            \"\(sql)\",",
             "            logger: logger",
             "        ).decode(\(decodeType).self) {",
