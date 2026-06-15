@@ -1,7 +1,20 @@
 public struct SQLParser {
     static let typeAliases: [String: String] = [
         // Arrays
-        "TEXT[]": "[String]",    "TEXT[]?": "[String]?",
+        "TEXT[]": "[String]",      "TEXT[]?": "[String]?",
+        "VARCHAR[]": "[String]",   "VARCHAR[]?": "[String]?",
+        "UUID[]": "[UUID]",        "UUID[]?": "[UUID]?",
+        "INT[]": "[Int]",          "INT[]?": "[Int]?",
+        "INTEGER[]": "[Int]",      "INTEGER[]?": "[Int]?",
+        "INT4[]": "[Int]",         "INT4[]?": "[Int]?",
+        "BIGINT[]": "[Int64]",     "BIGINT[]?": "[Int64]?",
+        "INT8[]": "[Int64]",       "INT8[]?": "[Int64]?",
+        "FLOAT8[]": "[Double]",    "FLOAT8[]?": "[Double]?",
+        "FLOAT4[]": "[Double]",    "FLOAT4[]?": "[Double]?",
+        "REAL[]": "[Double]",      "REAL[]?": "[Double]?",
+        "BOOLEAN[]": "[Bool]",     "BOOLEAN[]?": "[Bool]?",
+        "TIMESTAMP[]": "[Date]",   "TIMESTAMP[]?": "[Date]?",
+        "TIMESTAMPTZ[]": "[Date]", "TIMESTAMPTZ[]?": "[Date]?",
         // Binary
         "BYTEA": "Data",         "BYTEA?": "Data?",
         // Network types
@@ -43,7 +56,15 @@ public struct SQLParser {
     static let supportedTypes: Set<String> = [
         "UUID", "String", "Int", "Int64", "Double", "Decimal", "Bool", "Date", "Data",
         "UUID?", "String?", "Int?", "Int64?", "Double?", "Decimal?", "Bool?", "Date?", "Data?",
+        // Array types — only element types that conform to PostgresNIO's
+        // PostgresArrayEncodable/Decodable. (Decimal and Data are not array-codable.)
         "[String]", "[String]?",
+        "[UUID]", "[UUID]?",
+        "[Int]", "[Int]?",
+        "[Int64]", "[Int64]?",
+        "[Double]", "[Double]?",
+        "[Bool]", "[Bool]?",
+        "[Date]", "[Date]?",
     ]
 
     public static func parseQueryFile(_ contents: String) throws -> ParsedQueryFile {
