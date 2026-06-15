@@ -65,6 +65,26 @@ let users = try await UsersQueries.listUsers(client, logger: logger)
 try await UsersQueries.createUser(client, id: id, name: name, email: email, logger: logger)
 ```
 
+### Result types
+
+A query that returns **multiple columns** produces a named, `Sendable` `Row` struct (named after the query, e.g. `GetUserRow`), nested in the queries struct:
+
+```swift
+struct UsersQueries {
+    struct GetUserRow: Sendable {
+        let id: UUID
+        let name: String
+        let email: String?
+    }
+    ...
+}
+
+let user = try await UsersQueries.getUser(client, id: id, logger: logger) // GetUserRow?
+print(user?.name)
+```
+
+A query that returns a **single column** returns that column's type directly (e.g. `UUID?` for `:one`, `[UUID]` for `:many`) — no wrapper struct.
+
 ### Transactions
 
 Each generated function takes `some PostgresQueryRunner` as its first argument. Both `PostgresClient` and `PostgresConnection` conform, so you can run a single query against the pooled client (one connection per call) **or** run several queries atomically against one connection inside a transaction:

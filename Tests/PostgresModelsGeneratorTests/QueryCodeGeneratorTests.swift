@@ -23,9 +23,12 @@ struct QueryCodeGeneratorTests {
         #expect(output.contains("_ db: some PostgresQueryRunner,"))
         #expect(output.contains("id: UUID,"))
         #expect(output.contains("logger: Logger"))
-        #expect(output.contains("async throws -> (id: UUID, name: String)?"))
+        #expect(output.contains("struct GetUserRow: Sendable {"))
+        #expect(output.contains("let id: UUID"))
+        #expect(output.contains("let name: String"))
+        #expect(output.contains("async throws -> GetUserRow?"))
         #expect(output.contains(#"rows.decode((UUID, String).self)"#))
-        #expect(output.contains("return (id: id, name: name)"))
+        #expect(output.contains("return GetUserRow(id: id, name: name)"))
         #expect(output.contains("return nil"))
     }
 
@@ -43,6 +46,8 @@ struct QueryCodeGeneratorTests {
         #expect(output.contains("async throws -> UUID?"))
         #expect(output.contains("rows.decode(UUID.self)"))
         #expect(output.contains("return id"))
+        // Single-column results stay scalar — no Row struct is generated.
+        #expect(!output.contains("Row"))
     }
 
     @Test func oneQuerySQLInterpolatesBindings() {
@@ -75,9 +80,10 @@ struct QueryCodeGeneratorTests {
             ),
         ])
         let output = QueryCodeGenerator.generate(from: file, structName: "UsersQueries")
-        #expect(output.contains("async throws -> [(id: UUID, name: String)]"))
-        #expect(output.contains("var results: [(id: UUID, name: String)] = []"))
-        #expect(output.contains("results.append((id: id, name: name))"))
+        #expect(output.contains("struct ListUsersRow: Sendable {"))
+        #expect(output.contains("async throws -> [ListUsersRow]"))
+        #expect(output.contains("var results: [ListUsersRow] = []"))
+        #expect(output.contains("results.append(ListUsersRow(id: id, name: name))"))
         #expect(output.contains("return results"))
     }
 
@@ -227,10 +233,12 @@ struct QueryCodeGeneratorTests {
             ),
         ])
         let output = QueryCodeGenerator.generate(from: file, structName: "EventsQueries")
-        #expect(output.contains("async throws -> [(id: UUID, visibility: EventVisibility)]"))
+        #expect(output.contains("struct GetEventRow: Sendable {"))
+        #expect(output.contains("let visibility: EventVisibility"))
+        #expect(output.contains("async throws -> [GetEventRow]"))
         #expect(output.contains("rows.decode((UUID, String).self)") || output.contains(".decode((UUID, String).self)"))
         #expect(output.contains("for try await (id, visibilityRaw) in"))
-        #expect(output.contains("results.append((id: id, visibility: visibility))"))
+        #expect(output.contains("results.append(GetEventRow(id: id, visibility: visibility))"))
     }
 
     // MARK: Headers and structure
