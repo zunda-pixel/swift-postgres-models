@@ -68,16 +68,18 @@ public struct QueryCodeGenerator {
         let decodeType = decodeTypeExpr(query.returns)
         let destructure = destructureExpr(query.returns)
         let construct = constructExpr(query.returns)
-        return [
+        var lines = [
             "        let rows = try await db.query(",
             "            \"\(sql)\",",
             "            logger: logger",
             "        )",
             "        for try await \(destructure) in rows.decode(\(decodeType).self) {",
-            "            return \(construct)",
-            "        }",
-            "        return nil",
         ]
+        lines.append(contentsOf: conversionLines(query.returns, indent: "            "))
+        lines.append("            return \(construct)")
+        lines.append("        }")
+        lines.append("        return nil")
+        return lines
     }
 
     private static func generateManyBody(_ query: ParsedQuery, sql: String) -> [String] {
@@ -85,39 +87,77 @@ public struct QueryCodeGenerator {
         let decodeType = decodeTypeExpr(query.returns)
         let destructure = destructureExpr(query.returns)
         let construct = constructExpr(query.returns)
-        return [
+        var lines = [
             "        var results: [\(tupleType)] = []",
             "        for try await \(destructure) in try await db.query(",
             "            \"\(sql)\",",
             "            logger: logger",
             "        ).decode(\(decodeType).self) {",
-            "            results.append(\(construct))",
-            "        }",
-            "        return results",
         ]
+        lines.append(contentsOf: conversionLines(query.returns, indent: "            "))
+        lines.append("            results.append(\(construct))")
+        lines.append("        }")
+        lines.append("        return results")
+        return lines
     }
 
     // MARK: - Type expression helpers
 
-    /// Return type for :one — `(id: UUID, name: String)` or bare type for single column
+    /// Return type for :one — `(id: UUID, name: String)` or bare type for single column.
+    /// Custom types are exposed as their RawRepresentable type (e.g. `EventVisibility`).
     private static func oneTupleType(_ returns: [ParsedReturn]) -> String {
         if returns.count == 1 { return returns[0].type }
         let inner = returns.map { "\(IdentifierSanitizer.columnName(from: $0.name)): \($0.type)" }.joined(separator: ", ")
         return "(\(inner))"
     }
 
-    /// Decode type passed to `.decode(_:)` — `(UUID, String)` or `UUID` for single
+    /// Element type to decode for one return: its built-in type, or the raw
+    /// backing type (`String`/`Int`/…) for a custom RawRepresentable type.
+    private static func decodeElement(_ r: ParsedReturn) -> String {
+        guard r.isCustom else { return r.type }
+        let base = r.backing ?? "String"
+        return r.type.hasSuffix("?") ? "\(base)?" : base
+    }
+
+    /// Decode type passed to `.decode(_:)` — `(String, String)` or `UUID` for single.
     private static func decodeTypeExpr(_ returns: [ParsedReturn]) -> String {
-        if returns.count == 1 { return returns[0].type }
-        let inner = returns.map { $0.type }.joined(separator: ", ")
+        if returns.count == 1 { return decodeElement(returns[0]) }
+        let inner = returns.map(decodeElement).joined(separator: ", ")
         return "(\(inner))"
     }
 
-    /// Destructuring pattern — `(id, name)` or `id` for single
+    /// Name bound in the `for try await` pattern. Custom columns bind the raw
+    /// value under a `…Raw` name, which the conversion lines then convert.
+    private static func boundName(_ r: ParsedReturn) -> String {
+        let n = IdentifierSanitizer.columnName(from: r.name)
+        return r.isCustom ? "\(n)Raw" : n
+    }
+
+    /// Destructuring pattern — `(idRaw, name)` or `id` for single
     private static func destructureExpr(_ returns: [ParsedReturn]) -> String {
-        if returns.count == 1 { return IdentifierSanitizer.columnName(from: returns[0].name) }
-        let names = returns.map { IdentifierSanitizer.columnName(from: $0.name) }.joined(separator: ", ")
+        if returns.count == 1 { return boundName(returns[0]) }
+        let names = returns.map(boundName).joined(separator: ", ")
         return "(\(names))"
+    }
+
+    /// Lines converting raw values of custom columns into their
+    /// RawRepresentable types. A non-optional invalid value throws; an
+    /// optional one becomes `nil`.
+    private static func conversionLines(_ returns: [ParsedReturn], indent: String) -> [String] {
+        var lines: [String] = []
+        for r in returns where r.isCustom {
+            let final = IdentifierSanitizer.columnName(from: r.name)
+            let raw = "\(final)Raw"
+            let base = r.type.hasSuffix("?") ? String(r.type.dropLast()) : r.type
+            if r.type.hasSuffix("?") {
+                lines.append("\(indent)let \(final) = \(raw).flatMap { \(base)(rawValue: $0) }")
+            } else {
+                lines.append("\(indent)guard let \(final) = \(base)(rawValue: \(raw)) else {")
+                lines.append("\(indent)    throw PostgresModelsError.invalidRawValue(column: \"\(r.name)\", rawValue: \"\\(\(raw))\")")
+                lines.append("\(indent)}")
+            }
+        }
+        return lines
     }
 
     /// Labeled tuple construction — `(id: id, name: name)` or bare identifier for single column
@@ -146,7 +186,14 @@ public struct QueryCodeGenerator {
         result = result.replacingOccurrences(of: "\"", with: "\\\"")
         for (i, param) in params.enumerated().reversed() {
             let swiftName = IdentifierSanitizer.columnName(from: param.name)
-            result = result.replacingOccurrences(of: "$\(i + 1)", with: "\\(\(swiftName))")
+            let binding: String
+            if param.isCustom {
+                // Bind the enum's raw value. Optionals propagate via `?.rawValue`.
+                binding = param.type.hasSuffix("?") ? "\(swiftName)?.rawValue" : "\(swiftName).rawValue"
+            } else {
+                binding = swiftName
+            }
+            result = result.replacingOccurrences(of: "$\(i + 1)", with: "\\(\(binding))")
         }
         return result
     }
