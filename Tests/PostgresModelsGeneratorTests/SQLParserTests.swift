@@ -275,6 +275,27 @@ struct SQLParserTests {
         #expect(types == ["[UUID]", "[Int]", "[Int64]", "[Double]", "[Bool]", "[Date]", "[String]"])
     }
 
+    // MARK: Dynamic queries (optional-filter pattern)
+
+    @Test func acceptsOptionalFilterPatternWithReusedPlaceholders() throws {
+        // The documented dynamic-query pattern references each placeholder twice.
+        let input = """
+            -- @query ListEvents :many
+            -- @param organizer_id: UUID?
+            -- @param after: Date?
+            -- @returns id: UUID, title: String
+            SELECT id, title FROM events
+            WHERE ($1::uuid IS NULL OR organizer_id = $1)
+              AND ($2::timestamptz IS NULL OR starts_at > $2)
+            ORDER BY starts_at;
+            """
+        let result = try SQLParser.parseQueryFile(input)
+        #expect(result.queries[0].params == [
+            ParsedParam(name: "organizer_id", type: "UUID?"),
+            ParsedParam(name: "after", type: "Date?"),
+        ])
+    }
+
     // MARK: Custom (RawRepresentable) types
 
     @Test func parsesCustomEnumParam() throws {
