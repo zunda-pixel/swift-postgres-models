@@ -223,6 +223,58 @@ struct SQLParserTests {
         #expect(result.queries[0].returns[0].type == "[String]")
     }
 
+    @Test func parsesUUIDArrayParam() throws {
+        let input = """
+            -- @query GetUsers :many
+            -- @param ids: [UUID]
+            -- @returns id: UUID
+            SELECT id FROM users WHERE id = ANY($1);
+            """
+        let result = try SQLParser.parseQueryFile(input)
+        #expect(result.queries[0].params[0] == ParsedParam(name: "ids", type: "[UUID]"))
+    }
+
+    @Test func parsesSQLUUIDArrayTypeAsSwiftArray() throws {
+        let input = """
+            -- @query GetUsers :many
+            -- @param ids: UUID[]
+            -- @returns id: UUID
+            SELECT id FROM users WHERE id = ANY($1);
+            """
+        let result = try SQLParser.parseQueryFile(input)
+        #expect(result.queries[0].params[0].type == "[UUID]")
+    }
+
+    @Test func parsesIntAndBigintArrayAliases() throws {
+        let input = """
+            -- @query Counts :many
+            -- @param small: INT[]
+            -- @param big: BIGINT[]
+            -- @returns n: Int
+            SELECT n FROM t WHERE a = ANY($1) AND b = ANY($2);
+            """
+        let result = try SQLParser.parseQueryFile(input)
+        #expect(result.queries[0].params[0].type == "[Int]")
+        #expect(result.queries[0].params[1].type == "[Int64]")
+    }
+
+    @Test func parsesDirectArrayTypesForAllSupportedElements() throws {
+        let input = """
+            -- @query Bulk :exec
+            -- @param a: [UUID]
+            -- @param b: [Int]
+            -- @param c: [Int64]
+            -- @param d: [Double]
+            -- @param e: [Bool]
+            -- @param f: [Date]
+            -- @param g: [String]
+            INSERT INTO t SELECT * FROM unnest($1, $2, $3, $4, $5, $6, $7);
+            """
+        let result = try SQLParser.parseQueryFile(input)
+        let types = result.queries[0].params.map { $0.type }
+        #expect(types == ["[UUID]", "[Int]", "[Int64]", "[Double]", "[Bool]", "[Date]", "[String]"])
+    }
+
     @Test func parsesByteaTypeAsData() throws {
         let input = """
             -- @query GetKey :one

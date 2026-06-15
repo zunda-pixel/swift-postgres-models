@@ -93,6 +93,25 @@ Because every call inside the closure shares the same `connection`, they run in 
 
 **Supported types:** `UUID`, `String`, `Int`, `Int64`, `Double`, `Decimal`, `Bool`, `Date`, `Data` (`bytea`), and optionals of each (`UUID?`, `String?`, etc.)
 
+**Array types:** `[UUID]`, `[String]`, `[Int]`, `[Int64]`, `[Double]`, `[Bool]`, `[Date]` (and optionals). Write them directly (`[UUID]`) or with the SQL spelling (`UUID[]`, `INT[]`, `BIGINT[]`, `TEXT[]`, …). Use arrays for `= ANY($1)` membership tests and `unnest(...)` bulk inserts:
+
+```sql
+-- @query UsersByIDs :many
+-- @param ids: [UUID]
+-- @returns id: UUID, name: String
+SELECT id, name FROM users WHERE id = ANY($1);
+
+-- @query InsertVarieties :exec
+-- @param ids: [UUID]
+-- @param names: [String]
+INSERT INTO varieties (id, name) SELECT * FROM unnest($1::uuid[], $2::text[]);
+```
+
+```swift
+let found = try await UsersQueries.usersByIDs(client, ids: ids, logger: logger)
+try await VarietiesQueries.insertVarieties(client, ids: ids, names: names, logger: logger)
+```
+
 **File → struct naming:** the file stem is split on `_` and `-`, each word capitalised, then joined with a `Queries` suffix. `todo_items.query.sql` → `TodoItemsQueries`.
 
 **SQL injection safety:** PostgresNIO's `PostgresQuery` string interpolation is used for all parameters — `\(value)` binds the value as a prepared statement parameter, never raw-interpolated into the query string.
